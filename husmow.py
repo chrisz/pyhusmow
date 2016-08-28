@@ -1,5 +1,4 @@
 import requests
-import xmltodict
 import argparse
 import pprint
 
@@ -7,6 +6,7 @@ import pprint
 class API:
     _API_IM = 'https://tracker-id-ws.husqvarna.net/imservice/rest/'
     _API_TRACK = 'https://tracker-api-ws.husqvarna.net/services/'
+    _HEADERS = {'Accept': 'application/json', 'Content-type': 'application/xml'}
 
     def __init__(self):
         self.session = requests.Session()
@@ -19,7 +19,8 @@ class API:
                    "  <password>%s</password><language>fr-FR</language>"
                    "</login>") % (login, password)
         response = self.session.post(self._API_IM + 'im/login',
-                                     data=request, headers={'Content-type': 'application/xml'})
+                                     data=request, headers=self._HEADERS)
+
         response.raise_for_status()
 
         self.session.headers.update({'Session-Token': response.headers['Session-Token']})
@@ -33,29 +34,26 @@ class API:
         del (self.session.headers['Session-Token'])
 
     def list_robots(self):
-        response = self.session.get(self._API_TRACK + 'pairedRobots_v2')
+        response = self.session.get(self._API_TRACK + 'pairedRobots_v2', headers=self._HEADERS)
         response.raise_for_status()
 
-        result = xmltodict.parse(response.content)
-        return result
+        return response.json()
 
     def select_first_robot(self):
         result = self.list_robots()
-        self.device_id = result['robots']['robot']['deviceId']
+        self.device_id = result['robots'][0]['deviceId']
 
     def status(self):
-        response = self.session.get(self._API_TRACK + 'robot/%s/status_v2/' % self.device_id)
+        response = self.session.get(self._API_TRACK + 'robot/%s/status_v2/' % self.device_id, headers=self._HEADERS)
         response.raise_for_status()
 
-        result = xmltodict.parse(response.content)
-        return result
+        return response.json()
 
     def geo_status(self):
-        response = self.session.get(self._API_TRACK + 'robot/%s/geoStatus/' % self.device_id)
+        response = self.session.get(self._API_TRACK + 'robot/%s/geoStatus/' % self.device_id, headers=self._HEADERS)
         response.raise_for_status()
 
-        result = xmltodict.parse(response.content)
-        return result
+        return response.json()
 
     def get_mower_settings(self):
         request = ("<settings>"
@@ -77,17 +75,16 @@ class API:
                    "    <exitAngles/><subareaSettings/>"
                    "</settings>")
         response = self.session.post(self._API_TRACK + 'robot/%s/settings/' % self.device_id,
-                                     data=request, headers={'Content-type': 'application/xml'})
+                                     data=request, headers=self._HEADERS)
         response.raise_for_status()
 
-        result = xmltodict.parse(response.content)
-        return result
+        return response.json()
 
     def settingsUUID(self):
-        response = self.session.get(self._API_TRACK + 'robot/%s/settingsUUID/' % self.device_id)
+        response = self.session.get(self._API_TRACK + 'robot/%s/settingsUUID/' % self.device_id, headers=self._HEADERS)
         response.raise_for_status()
 
-        result = xmltodict.parse(response.content)
+        result = response.json()
         return result
 
     def control(self, command):
@@ -143,13 +140,14 @@ if __name__ == '__main__':
             if args.command == 'control':
                 mow.control(args.action)
             elif args.command == 'status':
-                pp.pprint(dict(mow.status()['mowerInfo']))
+                pp.pprint(mow.status())
 
             retry = 0
         except Exception as ex:
             retry -= 1
-            if retry == 0:
-                print("[ERROR] Retrying to send the command")
+            if retry > 0:
+                print(ex)
+                print("[ERROR] Retrying to send the command %d" % retry)
             else:
                 print("[ERROR] Failed to send the command")
                 exit(1)
