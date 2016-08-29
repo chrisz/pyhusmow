@@ -4,7 +4,6 @@ Control your Husqvarna automower using Automower connect API.
 # Requirements
   + python 2 or python 3
   + requests
-  + xmltodict
 
 # Commands
 ## Read status of your automower
