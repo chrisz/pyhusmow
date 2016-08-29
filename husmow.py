@@ -2,6 +2,37 @@ import requests
 import argparse
 import pprint
 
+from configparser import ConfigParser
+
+
+class AutoMowerConfig(ConfigParser):
+    def __init__(self):
+        super(AutoMowerConfig, self).__init__()
+        self['husqvarna.net'] = {}
+
+    def load_config(self):
+        return self.read('automower.cfg')
+
+    def save_config(self):
+        with open('automower.cfg', mode='w') as f:
+            return self.write(f)
+
+    @property
+    def login(self):
+        return self['husqvarna.net']['login']
+
+    @login.setter
+    def login(self, value):
+        self['husqvarna.net']['login'] = value
+
+    @property
+    def password(self):
+        return self['husqvarna.net']['password']
+
+    @password.setter
+    def password(self, value):
+        self['husqvarna.net']['password'] = value
+
 
 class API:
     _API_IM = 'https://tracker-id-ws.husqvarna.net/imservice/rest/'
@@ -22,6 +53,7 @@ class API:
                                      data=request, headers=self._HEADERS)
 
         response.raise_for_status()
+        print('Logged in successfully')
 
         self.session.headers.update({'Session-Token': response.headers['Session-Token']})
 
@@ -32,6 +64,7 @@ class API:
         response.raise_for_status()
         self.device_id = None
         del (self.session.headers['Session-Token'])
+        print('Logged out successfully')
 
     def list_robots(self):
         response = self.session.get(self._API_TRACK + 'pairedRobots_v2', headers=self._HEADERS)
@@ -114,6 +147,20 @@ class API:
         self.push_id = None
 
 
+def create_config(args):
+    config = AutoMowerConfig()
+    if args.login and args.password:
+        config.login = args.login
+        config.password = args.password
+        if not config.save_config():
+            print('Could not save configuration.')
+    else:
+        if not config.load_config():
+            print('Could not read configuration. Please provide login and password.')
+            config = None
+    return config
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Speak with your automower')
     subparsers = parser.add_subparsers(dest='command')
@@ -124,10 +171,15 @@ if __name__ == '__main__':
 
     parser_status = subparsers.add_parser('status', help='Get the status of your automower')
 
-    parser.add_argument('--login', dest='login', help='Your login', required=True)
-    parser.add_argument('--password', dest='password', help='Your password', required=True)
+    parser.add_argument('--login', dest='login', help='Your login')
+    parser.add_argument('--password', dest='password', help='Your password')
 
     args = parser.parse_args()
+
+    config = create_config(args)
+    if not config:
+        parser.print_help()
+        exit(1)
 
     retry = 5
     pp = pprint.PrettyPrinter(indent=4)
@@ -135,7 +187,7 @@ if __name__ == '__main__':
         try:
             mow = API()
 
-            mow.login(args.login, args.password)
+            mow.login(config.login, config.password)
 
             if args.command == 'control':
                 mow.control(args.action)
