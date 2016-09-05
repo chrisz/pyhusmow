@@ -40,5 +40,8 @@ If you want to print output of `status` command using XML format, you need to in
 # Warning
 The API and command line are not stable and can change at any time.
 
+# Contributors
+* rost314 ([@rost314](https://github.com/rost314))
+
 # Special Thanks
 I thank moumou for mowing my lawn very well !
