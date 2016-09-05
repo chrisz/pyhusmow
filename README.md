@@ -2,8 +2,9 @@
 Control your Husqvarna automower using Automower connect API.
 
 # Requirements
-  + python 2 or python 3
+  + python 3
   + requests
+  + (optional) dicttoxml if you want xml format for `status` command
 
 # Commands
 ## Read status of your automower
@@ -18,17 +19,23 @@ Control your Husqvarna automower using Automower connect API.
 ## Park your automower
     python husmow.py --login yourmaillogin --password yourpassword control PARK
 
-# Options
+# Save configuration in configuration file
 
-To save the login and password in 'automower.cfg' file, you can add the option --save:
+You can save `login`, `password`, `output_format`, `log_level` in `automower.cfg` in the directory where you run this script to omit these information from the command line for the next run.
 
-    python husmow.py --login yourmaillogin --password yourpassword control PARK
+To save information, just type your command with all information and add the option `--save` to command line:
+
+    python husmow.py --login yourmaillogin --password yourpassword --log-level INFO control PARK
 
 And the next time you run the command, you can omit these information from the command line:
 
     python husmow.py control PARK
 
 The file 'automower.cfg' is created in the current directory where you run the script and **THE PASSWORD IS STORED IN PLAIN TEXT**.
+
+## XML output
+
+If you want to print output of `status` command using XML format, you need to install the module `dicttoxml` and add option `--output-format XML` to command line. You should be interested to use the option '--log-level ERROR' to remove execution information from output.
 
 # Warning
 The API and command line are not stable and can change at any time.

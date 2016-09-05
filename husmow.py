@@ -1,14 +1,28 @@
 import requests
 import argparse
 import pprint
+import logging
+
+try:
+    import dicttoxml
+    has_xml = True
+except ImportError:
+    has_xml = False
+
 
 from configparser import ConfigParser
+
+logger = logging.getLogger("main")
 
 
 class AutoMowerConfig(ConfigParser):
     def __init__(self):
         super(AutoMowerConfig, self).__init__()
         self['husqvarna.net'] = {}
+        self.login = ""
+        self.password = ""
+        self.log_level = 'INFO'
+        self.output_format = 'JSON'
 
     def load_config(self):
         return self.read('automower.cfg')
@@ -33,16 +47,34 @@ class AutoMowerConfig(ConfigParser):
     def password(self, value):
         self['husqvarna.net']['password'] = value
 
+    @property
+    def log_level(self):
+        return self['husqvarna.net']['log_level']
+
+    @log_level.setter
+    def log_level(self, value):
+        self['husqvarna.net']['log_level'] = value
+
+    @property
+    def output_format(self):
+        return self['husqvarna.net']['output_format']
+
+    @output_format.setter
+    def output_format(self, value):
+        self['husqvarna.net']['output_format'] = value
+
 
 class API:
     _API_IM = 'https://tracker-id-ws.husqvarna.net/imservice/rest/'
     _API_TRACK = 'https://tracker-api-ws.husqvarna.net/services/'
     _HEADERS = {'Accept': 'application/json', 'Content-type': 'application/xml'}
 
-    def __init__(self):
+    def __init__(self, quiet=False, output_xml=False):
+        self.logger = logging.getLogger("main.automower")
         self.session = requests.Session()
         self.device_id = None
         self.push_id = None
+        self.output_xml = output_xml
 
     def login(self, login, password):
         request = ("<login>"
@@ -53,7 +85,7 @@ class API:
                                      data=request, headers=self._HEADERS)
 
         response.raise_for_status()
-        print('Logged in successfully')
+        self.logger.info('Logged in successfully')
 
         self.session.headers.update({'Session-Token': response.headers['Session-Token']})
 
@@ -64,7 +96,7 @@ class API:
         response.raise_for_status()
         self.device_id = None
         del (self.session.headers['Session-Token'])
-        print('Logged out successfully')
+        self.logger.info('Logged out successfully')
 
     def list_robots(self):
         response = self.session.get(self._API_TRACK + 'pairedRobots_v2', headers=self._HEADERS)
@@ -149,16 +181,38 @@ class API:
 
 def create_config(args):
     config = AutoMowerConfig()
-    if args.login and args.password:
+    config.load_config()
+    if args.login:
         config.login = args.login
+    if args.password:
         config.password = args.password
-        if args.save and not config.save_config():
-            print('Could not save configuration.')
-    else:
-        if not config.load_config():
-            print('Could not read configuration. Please provide login and password.')
-            config = None
+    if args.log_level:
+        config.log_level = args.log_level
+    if args.output_format:
+        config.output_format = args.output_format
+
+    if not config.login or not config.password:
+        logger.error('Missing login or password')
+        return None
+
+    if args.save:
+        if config.save_config():
+            logger.info('Configuration saved in "automower.cfg"')
+        else:
+            logger.info('Failed to saved configuration in "automower.cfg"')
+
     return config
+
+
+def configure_log(config):
+    logger.setLevel(logging.INFO)
+    if config.log_level == 'ERROR':
+        logger.setLevel(logging.ERROR)
+
+    steam_handler = logging.StreamHandler()
+    logger.addHandler(steam_handler)
+
+    logger.info('Logger configured')
 
 
 if __name__ == '__main__':
@@ -173,7 +227,15 @@ if __name__ == '__main__':
 
     parser.add_argument('--login', dest='login', help='Your login')
     parser.add_argument('--password', dest='password', help='Your password')
-    parser.add_argument('--save', dest='save', action='store_true', help='Save login/password in automower.cfg')
+    parser.add_argument('--save', dest='save', action='store_true',
+                        help='Save command line information in automower.cfg')
+
+    parser.add_argument('--log-level', dest='log_level', choices=['INFO', 'ERROR'],
+                        help='Display all logs or just in case of error')
+
+    parser.add_argument('--output-format', dest='output_format',
+                        choices=['JSON'] + (['XML'] if has_xml else []),
+                        help='Preferred output format (install dicttoxml module if you want xml output)')
 
     args = parser.parse_args()
 
@@ -181,6 +243,8 @@ if __name__ == '__main__':
     if not config:
         parser.print_help()
         exit(1)
+
+    configure_log(config)
 
     retry = 5
     pp = pprint.PrettyPrinter(indent=4)
@@ -193,19 +257,22 @@ if __name__ == '__main__':
             if args.command == 'control':
                 mow.control(args.action)
             elif args.command == 'status':
-                pp.pprint(mow.status())
+                if config.output_format == 'XML':
+                    print(dicttoxml.dicttoxml(mow.status(), attr_type=False).decode('utf-8'))
+                else:
+                    pp.pprint(mow.status())
 
             retry = 0
         except Exception as ex:
             retry -= 1
             if retry > 0:
-                print(ex)
-                print("[ERROR] Retrying to send the command %d" % retry)
+                logger.error(ex)
+                logger.error("[ERROR] Retrying to send the command %d" % retry)
             else:
-                print("[ERROR] Failed to send the command")
+                logger.error("[ERROR] Failed to send the command")
                 exit(1)
 
-    print("Done")
+    logger.info("Done")
 
     mow.logout()
 
