@@ -152,7 +152,7 @@ def create_config(args):
     if args.login and args.password:
         config.login = args.login
         config.password = args.password
-        if not config.save_config():
+        if args.save and not config.save_config():
             print('Could not save configuration.')
     else:
         if not config.load_config():
@@ -173,6 +173,7 @@ if __name__ == '__main__':
 
     parser.add_argument('--login', dest='login', help='Your login')
     parser.add_argument('--password', dest='password', help='Your password')
+    parser.add_argument('--save', dest='save', action='store_true', help='Save login/password in automower.cfg')
 
     args = parser.parse_args()
 
