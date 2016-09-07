@@ -3,13 +3,6 @@ import argparse
 import pprint
 import logging
 
-try:
-    import dicttoxml
-    has_xml = True
-except ImportError:
-    has_xml = False
-
-
 from configparser import ConfigParser
 
 logger = logging.getLogger("main")
@@ -22,7 +15,6 @@ class AutoMowerConfig(ConfigParser):
         self.login = ""
         self.password = ""
         self.log_level = 'INFO'
-        self.output_format = 'JSON'
 
     def load_config(self):
         return self.read('automower.cfg')
@@ -55,26 +47,17 @@ class AutoMowerConfig(ConfigParser):
     def log_level(self, value):
         self['husqvarna.net']['log_level'] = value
 
-    @property
-    def output_format(self):
-        return self['husqvarna.net']['output_format']
-
-    @output_format.setter
-    def output_format(self, value):
-        self['husqvarna.net']['output_format'] = value
-
 
 class API:
     _API_IM = 'https://tracker-id-ws.husqvarna.net/imservice/rest/'
     _API_TRACK = 'https://tracker-api-ws.husqvarna.net/services/'
     _HEADERS = {'Accept': 'application/json', 'Content-type': 'application/xml'}
 
-    def __init__(self, quiet=False, output_xml=False):
+    def __init__(self):
         self.logger = logging.getLogger("main.automower")
         self.session = requests.Session()
         self.device_id = None
         self.push_id = None
-        self.output_xml = output_xml
 
     def login(self, login, password):
         request = ("<login>"
@@ -188,8 +171,6 @@ def create_config(args):
         config.password = args.password
     if args.log_level:
         config.log_level = args.log_level
-    if args.output_format:
-        config.output_format = args.output_format
 
     if not config.login or not config.password:
         logger.error('Missing login or password')
@@ -233,10 +214,6 @@ if __name__ == '__main__':
     parser.add_argument('--log-level', dest='log_level', choices=['INFO', 'ERROR'],
                         help='Display all logs or just in case of error')
 
-    parser.add_argument('--output-format', dest='output_format',
-                        choices=['JSON'] + (['XML'] if has_xml else []),
-                        help='Preferred output format (install dicttoxml module if you want xml output)')
-
     args = parser.parse_args()
 
     config = create_config(args)
@@ -257,10 +234,7 @@ if __name__ == '__main__':
             if args.command == 'control':
                 mow.control(args.action)
             elif args.command == 'status':
-                if config.output_format == 'XML':
-                    print(dicttoxml.dicttoxml(mow.status(), attr_type=False).decode('utf-8'))
-                else:
-                    pp.pprint(mow.status())
+                pp.pprint(mow.status())
 
             retry = 0
         except Exception as ex:
