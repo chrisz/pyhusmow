@@ -1,9 +1,11 @@
-import requests
 import argparse
-import pprint
+import json
 import logging
-
+import pprint
 from configparser import ConfigParser
+from http.server import BaseHTTPRequestHandler, HTTPServer
+
+import requests
 
 logger = logging.getLogger("main")
 
@@ -196,33 +198,7 @@ def configure_log(config):
     logger.info('Logger configured')
 
 
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Speak with your automower')
-    subparsers = parser.add_subparsers(dest='command')
-
-    parser_control = subparsers.add_parser('control', help='Send command to your automower')
-    parser_control.add_argument('action', choices=['STOP', 'START', 'PARK'],
-                                help='the command')
-
-    parser_status = subparsers.add_parser('status', help='Get the status of your automower')
-
-    parser.add_argument('--login', dest='login', help='Your login')
-    parser.add_argument('--password', dest='password', help='Your password')
-    parser.add_argument('--save', dest='save', action='store_true',
-                        help='Save command line information in automower.cfg')
-
-    parser.add_argument('--log-level', dest='log_level', choices=['INFO', 'ERROR'],
-                        help='Display all logs or just in case of error')
-
-    args = parser.parse_args()
-
-    config = create_config(args)
-    if not config:
-        parser.print_help()
-        exit(1)
-
-    configure_log(config)
-
+def run_cli(config, args):
     retry = 5
     pp = pprint.PrettyPrinter(indent=4)
     while retry > 0:
@@ -249,5 +225,100 @@ if __name__ == '__main__':
     logger.info("Done")
 
     mow.logout()
+
+
+class HTTPRequestHandler(BaseHTTPRequestHandler):
+    config = None
+
+    def do_GET(self):
+        logger.info("Try to execute " + self.path)
+        retry = 3
+        while retry > 0:
+            try:
+                mow = API()
+
+                mow.login(config.login, config.password)
+
+                if self.path == '/start':
+                    mow.control('START')
+                    self.send_response(200)
+                    self.end_headers()
+                elif self.path == '/stop':
+                    mow.control('STOP')
+                    self.send_response(200)
+                    self.end_headers()
+                elif self.path == '/park':
+                    mow.control('PARK')
+                    self.send_response(200)
+                    self.end_headers()
+                elif self.path == '/status':
+                    status = mow.status()
+                    self.send_response(200)
+                    self.send_header('Content-Type', 'application/json')
+                    self.end_headers()
+                    self.wfile.write(json.dumps(status).encode('ascii'))
+                else:
+                    self.send_response(400)
+                    self.end_headers()
+
+                retry = 0
+            except Exception as ex:
+                retry -= 1
+                if retry > 0:
+                    logger.error(ex)
+                    logger.error("[ERROR] Retrying to send the command %d" % retry)
+                else:
+                    logger.error("[ERROR] Failed to send the command")
+                    self.send_response(500)
+
+            logger.info("Done")
+
+            mow.logout()
+
+
+def run_server(config, args):
+    server_address = (args.address, args.port)
+    HTTPRequestHandler.config = config
+    httpd = HTTPServer(server_address, HTTPRequestHandler)
+    httpd.serve_forever()
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='Speak with your automower')
+    subparsers = parser.add_subparsers(dest='command')
+
+    parser_control = subparsers.add_parser('control', help='Send command to your automower')
+    parser_control.add_argument('action', choices=['STOP', 'START', 'PARK'],
+                                help='the command')
+
+    parser_status = subparsers.add_parser('status', help='Get the status of your automower')
+
+    parser_server = subparsers.add_parser('server', help='Run an http server to handle commands')
+    parser_server.add_argument('--address', dest='address', default='127.0.0.1',
+                               help='IP address for server')
+    parser_server.add_argument('--port', dest='port', type=int, default=1234,
+                               help='port for server')
+
+    parser.add_argument('--login', dest='login', help='Your login')
+    parser.add_argument('--password', dest='password', help='Your password')
+    parser.add_argument('--save', dest='save', action='store_true',
+                        help='Save command line information in automower.cfg')
+
+    parser.add_argument('--log-level', dest='log_level', choices=['INFO', 'ERROR'],
+                        help='Display all logs or just in case of error')
+
+    args = parser.parse_args()
+
+    config = create_config(args)
+    if not config:
+        parser.print_help()
+        exit(1)
+
+    configure_log(config)
+
+    if args.command == 'server':
+        run_server(config, args)
+    else:
+        run_cli(config, args)
 
     exit(0)
