@@ -2,6 +2,7 @@ import argparse
 import json
 import logging
 import pprint
+import time
 from configparser import ConfigParser
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
@@ -17,6 +18,7 @@ class AutoMowerConfig(ConfigParser):
         self.login = ""
         self.password = ""
         self.log_level = 'INFO'
+        self.expire_status = "30"
 
     def load_config(self):
         return self.read('automower.cfg')
@@ -48,6 +50,14 @@ class AutoMowerConfig(ConfigParser):
     @log_level.setter
     def log_level(self, value):
         self['husqvarna.net']['log_level'] = value
+
+    @property
+    def expire_status(self):
+        return int(self['husqvarna.net']['expire_status'])
+
+    @expire_status.setter
+    def expire_status(self, value):
+        self['husqvarna.net']['expire_status'] = str(value)
 
 
 class API:
@@ -173,6 +183,8 @@ def create_config(args):
         config.password = args.password
     if args.log_level:
         config.log_level = args.log_level
+    if args.expire_status:
+        config.expire_status = args.expire_status
 
     if not config.login or not config.password:
         logger.error('Missing login or password')
@@ -229,6 +241,8 @@ def run_cli(config, args):
 
 class HTTPRequestHandler(BaseHTTPRequestHandler):
     config = None
+    last_status = ""
+    last_status_check = 0
 
     def do_GET(self):
         logger.info("Try to execute " + self.path)
@@ -252,11 +266,18 @@ class HTTPRequestHandler(BaseHTTPRequestHandler):
                     self.send_response(200)
                     self.end_headers()
                 elif self.path == '/status':
-                    status = mow.status()
+                    # XXX where do we store status properly ? Class variables are not thread safe...
+                    if HTTPRequestHandler.last_status_check < time.time() - config.expire_status:
+                        logger.info("Get status from Husqvarna servers")
+                        HTTPRequestHandler.last_status = mow.status()
+                    else:
+                        logger.info("Get status from cache")
+                    HTTPRequestHandler.last_status_check = time.time()
+
                     self.send_response(200)
                     self.send_header('Content-Type', 'application/json')
                     self.end_headers()
-                    self.wfile.write(json.dumps(status).encode('ascii'))
+                    self.wfile.write(json.dumps(HTTPRequestHandler.last_status).encode('ascii'))
                 else:
                     self.send_response(400)
                     self.end_headers()
@@ -298,6 +319,8 @@ if __name__ == '__main__':
                                help='IP address for server')
     parser_server.add_argument('--port', dest='port', type=int, default=1234,
                                help='port for server')
+    parser_server.add_argument('--expire', dest='expire_status', type=int, default=30,
+                               help='Status needs to be refreshed after this time')
 
     parser.add_argument('--login', dest='login', help='Your login')
     parser.add_argument('--password', dest='password', help='Your password')
