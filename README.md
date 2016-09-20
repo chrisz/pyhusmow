@@ -36,7 +36,7 @@ You can change the IP address or port using options `--address` and `--port` but
 
     python husmow.py --login yourmaillogin --password yourpassword server --address 0.0.0.0 --port 2345
 
-To avoid sending too much status requests to Husqvarna server, status is not refreshed before 30 seconds (can be configured using `--expire-status` option in seconds).
+To avoid sending too much status requests to Husqvarna server, status is not refreshed before 30 seconds (can be configured using `--expire` option in seconds).
 
 # Save configuration in configuration file
 
