@@ -183,7 +183,7 @@ def create_config(args):
         config.password = args.password
     if args.log_level:
         config.log_level = args.log_level
-    if args.expire_status:
+    if hasattr(args, "expire_status") and args.expire_status:
         config.expire_status = args.expire_status
 
     if not config.login or not config.password:
