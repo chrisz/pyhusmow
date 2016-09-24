@@ -44,7 +44,7 @@ You can save `login`, `password`, `output_format`, `log_level` in `automower.cfg
 
 To save information, just type your command with all information and add the option `--save` to command line:
 
-    python husmow.py --login yourmaillogin --password yourpassword --log-level INFO control PARK
+    python husmow.py --login yourmaillogin --password yourpassword --log-level INFO --save control PARK
 
 And the next time you run the command, you can omit these information from the command line:
 
