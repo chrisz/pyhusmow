@@ -246,6 +246,18 @@ class HTTPRequestHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         logger.info("Try to execute " + self.path)
+
+        # use cache for status command
+        if self.path == '/status':
+            # XXX where do we store status properly ? Class variables are not thread safe...
+            if HTTPRequestHandler.last_status_check > time.time() - config.expire_status:
+                logger.info("Get status from cache")
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps(HTTPRequestHandler.last_status).encode('ascii'))
+                return
+
         retry = 3
         while retry > 0:
             try:
@@ -266,14 +278,9 @@ class HTTPRequestHandler(BaseHTTPRequestHandler):
                     self.send_response(200)
                     self.end_headers()
                 elif self.path == '/status':
-                    # XXX where do we store status properly ? Class variables are not thread safe...
-                    if HTTPRequestHandler.last_status_check < time.time() - config.expire_status:
-                        logger.info("Get status from Husqvarna servers")
-                        HTTPRequestHandler.last_status = mow.status()
-                    else:
-                        logger.info("Get status from cache")
+                    logger.info("Get status from Husqvarna servers")
+                    HTTPRequestHandler.last_status = mow.status()
                     HTTPRequestHandler.last_status_check = time.time()
-
                     self.send_response(200)
                     self.send_header('Content-Type', 'application/json')
                     self.end_headers()
