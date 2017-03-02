@@ -1,6 +1,10 @@
 # pyhusmow
 Control your Husqvarna automower using Automower connect API.
 
+# CURRENT STATUS
+
+*HUSQVARNA CHANGED THE API TO CONTROL AUTOMOWERS SO, CURRENTLY, PYHUSMOW IS BROKEN :-(.*
+
 # Requirements
   + python 3
   + requests
