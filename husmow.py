@@ -61,117 +61,81 @@ class AutoMowerConfig(ConfigParser):
 
 
 class API:
-    _API_IM = 'https://tracker-id-ws.husqvarna.net/imservice/rest/'
-    _API_TRACK = 'https://tracker-api-ws.husqvarna.net/services/'
-    _HEADERS = {'Accept': 'application/json', 'Content-type': 'application/xml'}
+    _API_IM = 'https://iam-api.dss.husqvarnagroup.net/api/v3/'
+    _API_TRACK = 'https://amc-api.dss.husqvarnagroup.net/v1/'
+    _HEADERS = {'Accept': 'application/json', 'Content-type': 'application/json'}
 
     def __init__(self):
         self.logger = logging.getLogger("main.automower")
         self.session = requests.Session()
         self.device_id = None
-        self.push_id = None
+        self.token = None
 
     def login(self, login, password):
-        request = ("<login>"
-                   "  <email>%s</email>"
-                   "  <password>%s</password><language>fr-FR</language>"
-                   "</login>") % (login, password)
-        response = self.session.post(self._API_IM + 'im/login',
-                                     data=request, headers=self._HEADERS)
+        response = self.session.post(self._API_IM + 'token',
+                                     headers=self._HEADERS,
+                                     json={
+                                         "data": {
+                                             "attributes": {
+                                                 "password": password,
+                                                 "username": login
+                                             },
+                                             "type": "token"
+                                         }
+                                     })
 
         response.raise_for_status()
         self.logger.info('Logged in successfully')
 
-        self.session.headers.update({'Session-Token': response.headers['Session-Token']})
+        json = response.json()
+        self.token = json["data"]["id"]
+        self.session.headers.update({
+            'Authorization': "Bearer " + self.token,
+            'Authorization-Provider': json["data"]["attributes"]["provider"]
+        })
 
         self.select_first_robot()
 
     def logout(self):
-        response = self.session.post(self._API_IM + 'im/logout')
+        response = self.session.delete(self._API_IM + 'token/%s' % self.token)
         response.raise_for_status()
         self.device_id = None
-        del (self.session.headers['Session-Token'])
+        self.token = None
+        del (self.session.headers['Authorization'])
         self.logger.info('Logged out successfully')
 
     def list_robots(self):
-        response = self.session.get(self._API_TRACK + 'pairedRobots_v2', headers=self._HEADERS)
+        response = self.session.get(self._API_TRACK + 'mowers', headers=self._HEADERS)
         response.raise_for_status()
 
         return response.json()
 
     def select_first_robot(self):
         result = self.list_robots()
-        self.device_id = result['robots'][0]['deviceId']
+        self.device_id = result[0]['id']
 
     def status(self):
-        response = self.session.get(self._API_TRACK + 'robot/%s/status_v2/' % self.device_id, headers=self._HEADERS)
+        response = self.session.get(self._API_TRACK + 'mowers/%s/status' % self.device_id, headers=self._HEADERS)
         response.raise_for_status()
 
         return response.json()
 
     def geo_status(self):
-        response = self.session.get(self._API_TRACK + 'robot/%s/geoStatus/' % self.device_id, headers=self._HEADERS)
+        response = self.session.get(self._API_TRACK + 'mowers/%s/geofence' % self.device_id, headers=self._HEADERS)
         response.raise_for_status()
 
         return response.json()
-
-    def get_mower_settings(self):
-        request = ("<settings>"
-                   "    <autoTimer/><gpsSettings/><drivePastWire/>"
-                   "    <followWireOut><startPositionId>1</startPositionId></followWireOut>"
-                   "    <followWireOut><startPositionId>2</startPositionId></followWireOut>"
-                   "    <followWireOut><startPositionId>3</startPositionId></followWireOut>"
-                   "    <followWireOut><startPositionId>4</startPositionId></followWireOut>"
-                   "    <followWireOut><startPositionId>5</startPositionId></followWireOut>"
-                   "    <followWireIn><loopWire>RIGHT_BOUNDARY_WIRE</loopWire></followWireIn>"
-                   "    <followWireIn><loopWire>GUIDE_1</loopWire></followWireIn>"
-                   "    <followWireIn><loopWire>GUIDE_2</loopWire></followWireIn>"
-                   "    <followWireIn><loopWire>GUIDE_3</loopWire></followWireIn>"
-                   "    <csRange/>"
-                   "    <corridor><loopWire>RIGHT_BOUNDARY_WIRE</loopWire></corridor>"
-                   "    <corridor><loopWire>GUIDE_1</loopWire></corridor>"
-                   "    <corridor><loopWire>GUIDE_2</loopWire></corridor>"
-                   "    <corridor><loopWire>GUIDE_3</loopWire></corridor>"
-                   "    <exitAngles/><subareaSettings/>"
-                   "</settings>")
-        response = self.session.post(self._API_TRACK + 'robot/%s/settings/' % self.device_id,
-                                     data=request, headers=self._HEADERS)
-        response.raise_for_status()
-
-        return response.json()
-
-    def settingsUUID(self):
-        response = self.session.get(self._API_TRACK + 'robot/%s/settingsUUID/' % self.device_id, headers=self._HEADERS)
-        response.raise_for_status()
-
-        result = response.json()
-        return result
 
     def control(self, command):
         if command not in ['PARK', 'STOP', 'START']:
             raise Exception("Unknown command")
 
-        request = ("<control>"
-                   "   <action>%s</action>"
-                   "</control>") % command
-
-        response = self.session.put(self._API_TRACK + 'robot/%s/control/' % self.device_id,
-                                    data=request, headers={'Content-type': 'application/xml'})
+        response = self.session.post(self._API_TRACK + 'mowers/%s/control' % self.device_id,
+                                    headers=self._HEADERS,
+                                    json={
+                                        "action": command
+                                    })
         response.raise_for_status()
-
-    def add_push_id(self, id):
-        request = "id=%s&platform=iOS" % id
-        response = self.session.post(self._API_TRACK + 'addPushId', data=request,
-                                     headers={'Content-type': 'application/x-www-form-urlencoded; charset=UTF-8'})
-        response.raise_for_status()
-        self.push_id = id
-
-    def remove_push_id(self):
-        request = "id=%s&platform=iOS" % id
-        response = self.session.post(self._API_TRACK + 'removePushId', data=request,
-                                     headers={'Content-type': 'application/x-www-form-urlencoded; charset=UTF-8'})
-        response.raise_for_status()
-        self.push_id = None
 
 
 def create_config(args):
