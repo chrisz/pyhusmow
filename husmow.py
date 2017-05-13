@@ -4,6 +4,8 @@ import logging
 import pprint
 import time
 from configparser import ConfigParser
+from datetime import datetime, timedelta
+from dateutil.parser import parse
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import requests
@@ -60,6 +62,49 @@ class AutoMowerConfig(ConfigParser):
         self['husqvarna.net']['expire_status'] = str(value)
 
 
+class TokenConfig(ConfigParser):
+    def __init__(self):
+        super(TokenConfig, self).__init__()
+        self['husqvarna.net'] = {}
+        self.token = ""
+        self.provider = ""
+        self.expire_on = datetime(1900, 1, 1)
+
+    def load_config(self):
+        return self.read('token.cfg')
+
+    def save_config(self):
+        with open('token.cfg', mode='w') as f:
+            return self.write(f)
+
+    @property
+    def token(self):
+        return self['husqvarna.net']['token']
+
+    @token.setter
+    def token(self, value):
+        self['husqvarna.net']['token'] = value
+
+    @property
+    def provider(self):
+        return self['husqvarna.net']['provider']
+
+    @provider.setter
+    def provider(self, value):
+        self['husqvarna.net']['provider'] = value
+
+    @property
+    def expire_on(self):
+        return parse(self['husqvarna.net']['expire_on'])
+
+    @expire_on.setter
+    def expire_on(self, value):
+        self['husqvarna.net']['expire_on'] = value.isoformat()
+
+    def token_valid(self):
+        return True if self.token and self.expire_on > datetime.now() else False
+
+
 class API:
     _API_IM = 'https://iam-api.dss.husqvarnagroup.net/api/v3/'
     _API_TRACK = 'https://amc-api.dss.husqvarnagroup.net/v1/'
@@ -70,6 +115,7 @@ class API:
         self.session = requests.Session()
         self.device_id = None
         self.token = None
+        self.provider = None
 
     def login(self, login, password):
         response = self.session.post(self._API_IM + 'token',
@@ -88,13 +134,8 @@ class API:
         self.logger.info('Logged in successfully')
 
         json = response.json()
-        self.token = json["data"]["id"]
-        self.session.headers.update({
-            'Authorization': "Bearer " + self.token,
-            'Authorization-Provider': json["data"]["attributes"]["provider"]
-        })
-
-        self.select_first_robot()
+        self.set_token(json["data"]["id"], json["data"]["attributes"]["provider"])
+        return json["data"]["attributes"]["expires_in"]
 
     def logout(self):
         response = self.session.delete(self._API_IM + 'token/%s' % self.token)
@@ -103,6 +144,14 @@ class API:
         self.token = None
         del (self.session.headers['Authorization'])
         self.logger.info('Logged out successfully')
+
+    def set_token(self, token, provider):
+        self.token = token
+        self.provider = provider
+        self.session.headers.update({
+            'Authorization': "Bearer " + self.token,
+            'Authorization-Provider': provider
+        })
 
     def list_robots(self):
         response = self.session.get(self._API_TRACK + 'mowers', headers=self._HEADERS)
@@ -149,10 +198,12 @@ def create_config(args):
         config.log_level = args.log_level
     if hasattr(args, "expire_status") and args.expire_status:
         config.expire_status = args.expire_status
+    tokenConfig = TokenConfig()
+    tokenConfig.load_config()
 
-    if not config.login or not config.password:
+    if (not args.token or not tokenConfig.token_valid()) and (not config.login or not config.password):
         logger.error('Missing login or password')
-        return None
+        return None, None
 
     if args.save:
         if config.save_config():
@@ -160,7 +211,7 @@ def create_config(args):
         else:
             logger.info('Failed to saved configuration in "automower.cfg"')
 
-    return config
+    return config, tokenConfig
 
 
 def configure_log(config):
@@ -174,15 +225,30 @@ def configure_log(config):
     logger.info('Logger configured')
 
 
-def run_cli(config, args):
-    retry = 5
-    pp = pprint.PrettyPrinter(indent=4)
+def setup_api(config, tokenConfig):
+    mow = API()
+    if args.token and tokenConfig.token and not tokenConfig.token_valid():
+        logger.warn('The token expired on %s. Will create a new one.' % tokenConfig.expire_on)
+    if args.token and tokenConfig.token_valid():
+        mow.set_token(tokenConfig.token, tokenConfig.provider)
+    else:
+        expire = mow.login(config.login, config.password)
+        if args.token:
+            tokenConfig.token = mow.token
+            tokenConfig.provider = mow.provider
+            tokenConfig.expire_on = datetime.now() + timedelta(0, expire)
+            tokenConfig.save_config()
+            logger.info('Updated token')
+    mow.select_first_robot()
+    return mow
+
+
+def run_cli(config, tokenConfig, args):
+    retry = 3
+    pp = pprint.PrettyPrinter(indent=2)
     while retry > 0:
         try:
-            mow = API()
-
-            mow.login(config.login, config.password)
-
+            mow = setup_api(config, tokenConfig)
             if args.command == 'control':
                 mow.control(args.action)
             elif args.command == 'status':
@@ -200,11 +266,13 @@ def run_cli(config, args):
 
     logger.info("Done")
 
-    mow.logout()
+    if not args.token:
+        mow.logout()
 
 
 class HTTPRequestHandler(BaseHTTPRequestHandler):
     config = None
+    tokenConfig = None
     last_status = ""
     last_status_check = 0
 
@@ -225,9 +293,7 @@ class HTTPRequestHandler(BaseHTTPRequestHandler):
         retry = 3
         while retry > 0:
             try:
-                mow = API()
-
-                mow.login(config.login, config.password)
+                mow = setup_api(config, tokenConfig)
 
                 if self.path == '/start':
                     mow.control('START')
@@ -264,13 +330,15 @@ class HTTPRequestHandler(BaseHTTPRequestHandler):
                     self.send_response(500)
 
             logger.info("Done")
+            
+            if not args.token:
+                mow.logout()
 
-            mow.logout()
 
-
-def run_server(config, args):
+def run_server(config, tokenConfig, args):
     server_address = (args.address, args.port)
     HTTPRequestHandler.config = config
+    HTTPRequestHandler.tokenConfig = tokenConfig
     httpd = HTTPServer(server_address, HTTPRequestHandler)
     httpd.serve_forever()
 
@@ -297,22 +365,32 @@ if __name__ == '__main__':
     parser.add_argument('--password', dest='password', help='Your password')
     parser.add_argument('--save', dest='save', action='store_true',
                         help='Save command line information in automower.cfg')
+    parser.add_argument('--no-token', dest='token', action='store_false',
+                        help='Disabled the use of the token')
+    parser.add_argument('--logout', dest='logout', action='store_true',
+                        help='Logout an existing token saved in token.cfg')
 
     parser.add_argument('--log-level', dest='log_level', choices=['INFO', 'ERROR'],
                         help='Display all logs or just in case of error')
 
     args = parser.parse_args()
 
-    config = create_config(args)
+    config, tokenConfig = create_config(args)
     if not config:
         parser.print_help()
         exit(1)
 
     configure_log(config)
 
-    if args.command == 'server':
-        run_server(config, args)
+    if args.logout and tokenConfig.token_valid():
+        mow = API()
+        mow.set_token(tokenConfig.token, tokenConfig.provider)
+        mow.logout()
+        tokenConfig = TokenConfig()
+        tokenConfig.save_config()
+    elif args.command == 'server':
+        run_server(config, tokenConfig, args)
     else:
-        run_cli(config, args)
+        run_cli(config, tokenConfig, args)
 
     exit(0)
