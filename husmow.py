@@ -105,6 +105,10 @@ class TokenConfig(ConfigParser):
         return True if self.token and self.expire_on > datetime.now() else False
 
 
+class CommandException(Exception):
+    pass
+
+
 class API:
     _API_IM = 'https://iam-api.dss.husqvarnagroup.net/api/v3/'
     _API_TRACK = 'https://amc-api.dss.husqvarnagroup.net/v1/'
@@ -159,9 +163,19 @@ class API:
 
         return response.json()
 
-    def select_first_robot(self):
+    def select_robot(self, mower):
         result = self.list_robots()
-        self.device_id = result[0]['id']
+        if not len(result):
+            raise CommandException('No mower found')
+        if mower:
+            for item in result:
+                if item['name'] == mower or item['id'] == mower:
+                    self.device_id = item['id']
+                    break
+            if self.device_id is None:
+                raise CommandException('Could not find a mower matching %s' % mower)
+        else:
+            self.device_id = result[0]['id']
 
     def status(self):
         response = self.session.get(self._API_TRACK + 'mowers/%s/status' % self.device_id, headers=self._HEADERS)
@@ -177,7 +191,7 @@ class API:
 
     def control(self, command):
         if command not in ['PARK', 'STOP', 'START']:
-            raise Exception("Unknown command")
+            raise CommandException("Unknown command")
 
         response = self.session.post(self._API_TRACK + 'mowers/%s/control' % self.device_id,
                                     headers=self._HEADERS,
@@ -239,7 +253,7 @@ def setup_api(config, tokenConfig):
             tokenConfig.expire_on = datetime.now() + timedelta(0, expire)
             tokenConfig.save_config()
             logger.info('Updated token')
-    mow.select_first_robot()
+    mow.select_robot(args.mower)
     return mow
 
 
@@ -253,8 +267,13 @@ def run_cli(config, tokenConfig, args):
                 mow.control(args.action)
             elif args.command == 'status':
                 pp.pprint(mow.status())
+            elif args.command == 'list':
+                pp.pprint(mow.list_robots())
 
             retry = 0
+        except CommandException as ce:
+            logger.error("[ERROR] Wrong parameters: %s" % ce)
+            break
         except Exception as ex:
             retry -= 1
             if retry > 0:
@@ -262,7 +281,7 @@ def run_cli(config, tokenConfig, args):
                 logger.error("[ERROR] Retrying to send the command %d" % retry)
             else:
                 logger.error("[ERROR] Failed to send the command")
-                exit(1)
+                break
 
     logger.info("Done")
 
@@ -291,6 +310,7 @@ class HTTPRequestHandler(BaseHTTPRequestHandler):
                 return
 
         retry = 3
+        fatal = False
         while retry > 0:
             try:
                 mow = setup_api(config, tokenConfig)
@@ -320,6 +340,12 @@ class HTTPRequestHandler(BaseHTTPRequestHandler):
                     self.end_headers()
 
                 retry = 0
+            except CommandException as ce:
+                msg = "[ERROR] Wrong parameters: %s" % ce
+                logger.error(msg)
+                self.send_response(500, msg)
+                fatal = True
+                break
             except Exception as ex:
                 retry -= 1
                 if retry > 0:
@@ -330,9 +356,11 @@ class HTTPRequestHandler(BaseHTTPRequestHandler):
                     self.send_response(500)
 
             logger.info("Done")
-            
+
             if not args.token:
                 mow.logout()
+            if fatal:
+                exit(1)
 
 
 def run_server(config, tokenConfig, args):
@@ -351,6 +379,7 @@ if __name__ == '__main__':
     parser_control.add_argument('action', choices=['STOP', 'START', 'PARK'],
                                 help='the command')
 
+    parser_list = subparsers.add_parser('list', help='List all the mowers connected to the account.')
     parser_status = subparsers.add_parser('status', help='Get the status of your automower')
 
     parser_server = subparsers.add_parser('server', help='Run an http server to handle commands')
@@ -369,6 +398,8 @@ if __name__ == '__main__':
                         help='Disabled the use of the token')
     parser.add_argument('--logout', dest='logout', action='store_true',
                         help='Logout an existing token saved in token.cfg')
+    parser.add_argument('--mower', dest='mower',
+                        help='Select the mower to use. It can be the name or the id of the mower. When not provied the first mower will be used.')
 
     parser.add_argument('--log-level', dest='log_level', choices=['INFO', 'ERROR'],
                         help='Display all logs or just in case of error')
