@@ -54,7 +54,8 @@ def run_logger(tc):
                     return sch.enterabs(nextStart.timestamp(), 1, log_status)
             sch.enter(args.delay, 1, log_status)
         elif args.summary and status['status'] is not None:
-            write_log(now(), status['status'], now() - status['status_changed'])
+            write_log(
+                now(), status['status'], now() - status['status_changed'], fName=args.summary)
 
     write_log(
         'time',

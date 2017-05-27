@@ -399,7 +399,7 @@ if __name__ == '__main__':
     parser.add_argument('--logout', dest='logout', action='store_true',
                         help='Logout an existing token saved in token.cfg')
     parser.add_argument('--mower', dest='mower',
-                        help='Select the mower to use. It can be the name or the id of the mower. When not provied the first mower will be used.')
+                        help='Select the mower to use. It can be the name or the id of the mower. If not provied the first mower will be used.')
 
     parser.add_argument('--log-level', dest='log_level', choices=['INFO', 'ERROR'],
                         help='Display all logs or just in case of error')
