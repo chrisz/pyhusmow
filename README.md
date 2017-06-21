@@ -4,6 +4,22 @@ Control your Husqvarna automower using Automower connect API.
 # Requirements
   + python 3
   + requests
+  + python-dateutil
+
+# One way to configure the environment to run pyhusmow
+
+pyhusmow requires a recent version of requests so you can use virtualenv to install dependencies without modifying your system:
+
+    virtualenv -p python3 husmow_venv
+    source husmow_venv/bin/activate
+    pip3 install requests
+    pip3 install python-dateutil
+    curl -o husmow.py https://raw.githubusercontent.com/chrisz/pyhusmow/master/husmow.py
+    python3 husmow.py --help
+
+Then you can run pyhusmow without loading the virtual environment explicitly:
+
+    ./husmow_venv/bin/python3 husmow.py --help
 
 # Commands
 ## Read status of your automower
