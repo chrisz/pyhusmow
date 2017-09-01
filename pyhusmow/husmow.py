@@ -1,5 +1,3 @@
-#! /usr/bin/env python
-
 import argparse
 import json
 import logging
@@ -375,7 +373,7 @@ def run_server(config, tokenConfig, args):
     httpd.serve_forever()
 
 
-if __name__ == '__main__':
+def main():
     parser = argparse.ArgumentParser(description='Speak with your automower')
     subparsers = parser.add_subparsers(dest='command')
 
