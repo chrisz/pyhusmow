@@ -241,7 +241,7 @@ def configure_log(config):
     logger.info('Logger configured')
 
 
-def setup_api(config, tokenConfig):
+def setup_api(config, tokenConfig, args):
     mow = API()
     if args.token and tokenConfig.token and not tokenConfig.token_valid():
         logger.warn('The token expired on %s. Will create a new one.' % tokenConfig.expire_on)
@@ -264,7 +264,7 @@ def run_cli(config, tokenConfig, args):
     pp = pprint.PrettyPrinter(indent=2)
     while retry > 0:
         try:
-            mow = setup_api(config, tokenConfig)
+            mow = setup_api(config, tokenConfig, args)
             if args.command == 'control':
                 mow.control(args.action)
             elif args.command == 'status':
@@ -294,6 +294,7 @@ def run_cli(config, tokenConfig, args):
 class HTTPRequestHandler(BaseHTTPRequestHandler):
     config = None
     tokenConfig = None
+    args = None
     last_status = ""
     last_status_check = 0
 
@@ -303,7 +304,7 @@ class HTTPRequestHandler(BaseHTTPRequestHandler):
         # use cache for status command
         if self.path == '/status':
             # XXX where do we store status properly ? Class variables are not thread safe...
-            if HTTPRequestHandler.last_status_check > time.time() - config.expire_status:
+            if HTTPRequestHandler.last_status_check > time.time() - HTTPRequestHandler.config.expire_status:
                 logger.info("Get status from cache")
                 self.send_response(200)
                 self.send_header('Content-Type', 'application/json')
@@ -315,7 +316,7 @@ class HTTPRequestHandler(BaseHTTPRequestHandler):
         fatal = False
         while retry > 0:
             try:
-                mow = setup_api(config, tokenConfig)
+                mow = setup_api(HTTPRequestHandler.config, HTTPRequestHandler.tokenConfig, HTTPRequestHandler.args)
 
                 if self.path == '/start':
                     mow.control('START')
@@ -359,7 +360,7 @@ class HTTPRequestHandler(BaseHTTPRequestHandler):
 
             logger.info("Done")
 
-            if not args.token:
+            if not HTTPRequestHandler.args.token:
                 mow.logout()
             if fatal:
                 exit(1)
@@ -369,6 +370,7 @@ def run_server(config, tokenConfig, args):
     server_address = (args.address, args.port)
     HTTPRequestHandler.config = config
     HTTPRequestHandler.tokenConfig = tokenConfig
+    HTTPRequestHandler.args = args
     httpd = HTTPServer(server_address, HTTPRequestHandler)
     httpd.serve_forever()
 
