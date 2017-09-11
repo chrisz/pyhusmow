@@ -6,7 +6,7 @@ from sched import scheduler
 from sys import stdout
 from time import time
 
-from husmow import TokenConfig, API
+from pyhusmow import TokenConfig, API
 
 
 def run_logger(tc):
@@ -49,7 +49,7 @@ def run_logger(tc):
         if stop_time >= currentTime:
             if mow_status['mowerStatus'] == 'PARKED_TIMER' and mow_status['batteryPercent'] == 100:
                 # The mower has a full battery and is waiting for the next timer.
-                # Skip until 2 minutes before the next timer start 
+                # Skip until 2 minutes before the next timer start
                 nextStart = start - timedelta(0, 2 * 60)
                 if nextStart > datetime.now():
                     # fallback to the usual operation if the nextStart is not in the future
