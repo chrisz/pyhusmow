@@ -6,7 +6,7 @@ setup(
     url='https://github.com/chrisz/pyhusmow',
     author='Christophe Carre',
     license='GPLv3',
-    version='0.1',
+    version='0.1.1',
     packages=['pyhusmow'],
     scripts=[
         'bin/husmow',
