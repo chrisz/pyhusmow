@@ -3,7 +3,7 @@ from setuptools import setup
 setup(
     name='pyhusmow',
     description='Control your Husqvarna automower using Automower connect API.',
-    url='https://github.com/yeah/pyhusmow',
+    url='https://github.com/chrisz/pyhusmow',
     author='Christophe Carre',
     license='GPLv3',
     version='0.1',
