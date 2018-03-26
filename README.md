@@ -14,6 +14,7 @@ pyhusmow requires a recent version of requests so you can use virtualenv to inst
     source husmow_venv/bin/activate
     pip3 install pyhusmow
     husmow --help
+    husmow_logger --help
 
 Then you can run pyhusmow without loading the virtual environment explicitly:
 

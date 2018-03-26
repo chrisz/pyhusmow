@@ -201,6 +201,21 @@ class API:
         response.raise_for_status()
 
 
+def as_json(**kwargs):
+    from json import dumps
+    print(dumps(kwargs, indent=2))
+
+
+_errors = []
+
+
+def log_error(args, msg):
+    if args.json:
+        _errors.append(str(msg))
+    else:
+        logger.error(msg)
+
+
 def create_config(args):
     config = AutoMowerConfig()
     config.load_config()
@@ -216,7 +231,7 @@ def create_config(args):
     tokenConfig.load_config()
 
     if (not args.token or not tokenConfig.token_valid()) and (not config.login or not config.password):
-        logger.error('Missing login or password')
+        log_error(args, 'Missing login or password')
         return None, None
 
     if args.save:
@@ -259,28 +274,31 @@ def setup_api(config, tokenConfig, args):
 
 def run_cli(config, tokenConfig, args):
     retry = 3
-    pp = pprint.PrettyPrinter(indent=2)
+    if args.json:
+        out = lambda res: as_json(**{args.command: res})
+    else:
+        pp = pprint.PrettyPrinter(indent=2)
+        out = pp.pprint
     while retry > 0:
         try:
             mow = setup_api(config, tokenConfig, args)
             if args.command == 'control':
                 mow.control(args.action)
             elif args.command == 'status':
-                pp.pprint(mow.status())
+                out(mow.status())
             elif args.command == 'list':
-                pp.pprint(mow.list_robots())
+                out(mow.list_robots())
 
             retry = 0
         except CommandException as ce:
-            logger.error("[ERROR] Wrong parameters: %s" % ce)
+            log_error(args, "[ERROR] Wrong parameters: %s" % ce)
             break
         except Exception as ex:
             retry -= 1
             if retry > 0:
-                logger.error(ex)
-                logger.error("[ERROR] Retrying to send the command %d" % retry)
+                log_error(args, "[ERROR] %s. Retrying to send the command %d" % (ex, 3- retry))
             else:
-                logger.error("[ERROR] Failed to send the command")
+                log_error(args, "[ERROR] Failed to send the command")
                 break
 
     logger.info("Done")
@@ -374,8 +392,10 @@ def run_server(config, tokenConfig, args):
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Speak with your automower')
+    parser = argparse.ArgumentParser(description='Speak with your automower',
+                                     formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     subparsers = parser.add_subparsers(dest='command')
+    ask_password = argparse.Namespace()
 
     parser_control = subparsers.add_parser('control', help='Send command to your automower')
     parser_control.add_argument('action', choices=['STOP', 'START', 'PARK'],
@@ -393,24 +413,35 @@ def main():
                                help='Status needs to be refreshed after this time')
 
     parser.add_argument('--login', dest='login', help='Your login')
-    parser.add_argument('--password', dest='password', help='Your password')
+    parser.add_argument('--password', dest='password', nargs='?', const=ask_password,
+                        help='Your password. If used without arguments it will promp')
     parser.add_argument('--save', dest='save', action='store_true',
-                        help='Save command line information in automower.cfg')
+                        help='Save command line information in automower.cfg. NOTE: the passwords is saved in cleartext')
     parser.add_argument('--no-token', dest='token', action='store_false',
                         help='Disabled the use of the token')
     parser.add_argument('--logout', dest='logout', action='store_true',
                         help='Logout an existing token saved in token.cfg')
     parser.add_argument('--mower', dest='mower',
                         help='Select the mower to use. It can be the name or the id of the mower. If not provied the first mower will be used.')
-
     parser.add_argument('--log-level', dest='log_level', choices=['INFO', 'ERROR'],
                         help='Display all logs or just in case of error')
+    parser.add_argument('--json', action='store_true',
+                        help='Enable json output. Logger will be set to "ERROR"')
 
     args = parser.parse_args()
+    if args.password == ask_password:
+        import getpass
+        args.password = getpass.getpass()
+
+    if args.json:
+        args.log_level = 'ERROR'
 
     config, tokenConfig = create_config(args)
     if not config:
-        parser.print_help()
+        if args.json:
+            as_json(errors=_errors)
+        else:
+            parser.print_help()
         exit(1)
 
     configure_log(config)
@@ -425,5 +456,7 @@ def main():
         run_server(config, tokenConfig, args)
     else:
         run_cli(config, tokenConfig, args)
+        if args.json and _errors:
+            as_json(errors=_errors)
 
     exit(0)
