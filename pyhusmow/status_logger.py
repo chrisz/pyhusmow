@@ -1,15 +1,13 @@
-#! /usr/bin/env python
-
 import argparse
 from datetime import datetime, timedelta
 from sched import scheduler
 from sys import stdout
 from time import time
 
-from pyhusmow import TokenConfig, API
+from .husmow import TokenConfig, API
 
 
-def run_logger(tc):
+def run_logger(tc, args, stop_time):
     mow = API()
     mow.set_token(tc.token, tc.provider)
     mow.select_robot(args.mower)
@@ -74,11 +72,11 @@ def run_logger(tc):
     sch.run()
 
 
-def parse_until():
+def parse_until(args):
     until = args.until.lower()
     try:
         num = int(until[:-1])
-    except:
+    except Exception:
         print('The until argument is not valid.', until)
         exit(2)
     if until.endswith('m'):
@@ -89,11 +87,11 @@ def parse_until():
     exit(3)
 
 
-if __name__ == '__main__':
+def main():
     parser = argparse.ArgumentParser(
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
         description='Periodically log the mower status.',
-        epilog='A valid token.cfg config file is required. Use husmow.py to create it.')
+        epilog='A valid token.cfg config file is required. Use husmow to create it.')
     parser.add_argument(
         '-d',
         '--delay',
@@ -120,12 +118,12 @@ if __name__ == '__main__':
         help='Select the mower to use. When not provied the first mower will be used.')
     args = parser.parse_args()
 
-    stop_time = parse_until()
+    stop_time = parse_until(args)
 
     tc = TokenConfig()
     tc.load_config()
     if tc.token_valid():
-        run_logger(tc)
+        run_logger(tc, args, stop_time)
     else:
         print('The token is not valid.')
         exit(1)

@@ -6,15 +6,17 @@ setup(
     url='https://github.com/chrisz/pyhusmow',
     author='Christophe Carre',
     license='GPLv3',
-    version='0.1.1',
+    version='0.2.0',
     packages=['pyhusmow'],
-    scripts=[
-        'bin/husmow',
-        'bin/status_logger'
-    ],
+    entry_points={
+        'console_scripts': [
+            'husmow=pyhusmow:main',
+            'husmow_logger=pyhusmow.status_logger:main'
+        ],
+    },
     install_requires=[
         'requests',
         'python-dateutil'
     ],
-    zip_safe=False
+    zip_safe=False,
 )
