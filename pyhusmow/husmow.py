@@ -68,6 +68,7 @@ class TokenConfig(ConfigParser):
         self['husqvarna.net'] = {}
         self.token = ""
         self.provider = ""
+        self.user_id = ""
         self.expire_on = datetime(1900, 1, 1)
 
     def load_config(self):
@@ -94,6 +95,14 @@ class TokenConfig(ConfigParser):
         self['husqvarna.net']['provider'] = value
 
     @property
+    def user_id(self):
+        return self['husqvarna.net']['user_id']
+
+    @user_id.setter
+    def user_id(self, value):
+        self['husqvarna.net']['user_id'] = value
+
+    @property
     def expire_on(self):
         return parse(self['husqvarna.net']['expire_on'])
 
@@ -112,12 +121,15 @@ class CommandException(Exception):
 class API:
     _API_IM = 'https://iam-api.dss.husqvarnagroup.net/api/v3/'
     _API_TRACK = 'https://amc-api.dss.husqvarnagroup.net/v1/'
+    _API_SG = 'https://sg-api.dss.husqvarnagroup.net/sg-1/' # gardena mowers
     _HEADERS = {'Accept': 'application/json', 'Content-type': 'application/json'}
 
     def __init__(self):
         self.logger = logging.getLogger("main.automower")
         self.session = requests.Session()
         self.device_id = None
+        self.device_type = None
+        self.location_id = None
         self.token = None
         self.provider = None
 
@@ -138,7 +150,7 @@ class API:
         self.logger.info('Logged in successfully')
 
         json = response.json()
-        self.set_token(json["data"]["id"], json["data"]["attributes"]["provider"])
+        self.set_token(json["data"]["id"], json["data"]["attributes"]["provider"], json["data"]["attributes"]["user_id"])
         return json["data"]["attributes"]["expires_in"]
 
     def logout(self):
@@ -149,19 +161,43 @@ class API:
         del (self.session.headers['Authorization'])
         self.logger.info('Logged out successfully')
 
-    def set_token(self, token, provider):
+    def set_token(self, token, provider, user_id):
         self.token = token
         self.provider = provider
+        self.user_id = user_id
         self.session.headers.update({
             'Authorization': "Bearer " + self.token,
             'Authorization-Provider': provider
         })
 
+    def __find_by_name(self, arr, name):
+        for entry in arr:
+            if "name" in entry and entry["name"] == name:
+                return entry
+        return None
+
     def list_robots(self):
         response = self.session.get(self._API_TRACK + 'mowers', headers=self._HEADERS)
         response.raise_for_status()
+        mowers_husqvarna = response.json()
+        for mower in mowers_husqvarna:
+            mower["_husmow_type"] = "husqvarna"
 
-        return response.json()
+        response = self.session.get(self._API_SG + 'locations?user_id={}'.format(self.user_id), headers=self._HEADERS)
+        response.raise_for_status()
+        mowers_gardena = []
+        for location in response.json()["locations"]:
+            response = self.session.get(self._API_SG + 'devices?locationId={}'.format(location["id"]),
+                                        headers=self._HEADERS)
+            response.raise_for_status()
+            for device in response.json()["devices"]:
+                if device["category"] == "mower":
+                    device["_husmow_type"] = "gardena"
+                    device["_husmow_location_id"] = location["id"]
+                    device["model"] = self.__find_by_name(self.__find_by_name(device["abilities"], "mower_type")["properties"],"device_type")["value"],
+                    mowers_gardena.append(device)
+
+        return mowers_husqvarna + mowers_gardena
 
     def select_robot(self, mower):
         result = self.list_robots()
@@ -171,19 +207,44 @@ class API:
             for item in result:
                 if item['name'] == mower or item['id'] == mower:
                     self.device_id = item['id']
+                    self.device_type = item['_husmow_type']
+                    self.location_id = item['_husmow_location_id']
                     break
             if self.device_id is None:
                 raise CommandException('Could not find a mower matching %s' % mower)
         else:
             self.device_id = result[0]['id']
+            self.device_type = result[0]['_husmow_type']
+            self.location_id = result[0]['_husmow_location_id']
 
     def status(self):
-        response = self.session.get(self._API_TRACK + 'mowers/%s/status' % self.device_id, headers=self._HEADERS)
+        if self.device_type == "gardena":
+            url = self._API_SG + 'devices/{}?locationId={}'.format(self.device_id, self.location_id)
+        elif self.device_type == "husqvarna":
+            url = self._API_TRACK + 'mowers/%s/status' % self.device_id
+        response = self.session.get(url, headers=self._HEADERS)
         response.raise_for_status()
 
-        return response.json()
+        data = response.json()
+
+        if self.device_type == "husqvarna":
+            return data
+        elif self.device_type == "gardena":
+            device = data["devices"]
+            status = self.__find_by_name(self.__find_by_name(device["abilities"], "mower")["properties"], "status")
+            return {
+                "id": device["id"],
+                "name": device["name"],
+                "model": self.__find_by_name(self.__find_by_name(device["abilities"], "mower_type")["properties"], "device_type")["value"],
+                "storedTimestamp": status["timestamp"],
+                "mowerStatus": status["value"].upper(),
+                "batteryPercent": self.__find_by_name(self.__find_by_name(device["abilities"], "battery")["properties"], "level")["value"]
+            }
 
     def geo_status(self):
+        if self.device_type == "gardena":
+            raise CommandException("unsupported for gardena mowers")
+
         response = self.session.get(self._API_TRACK + 'mowers/%s/geofence' % self.device_id, headers=self._HEADERS)
         response.raise_for_status()
 
@@ -192,12 +253,21 @@ class API:
     def control(self, command):
         if command not in ['PARK', 'STOP', 'START']:
             raise CommandException("Unknown command")
-
-        response = self.session.post(self._API_TRACK + 'mowers/%s/control' % self.device_id,
-                                    headers=self._HEADERS,
-                                    json={
-                                        "action": command
-                                    })
+        if self.device_type == "gardena":
+            url = self._API_SG + 'devices/{}/abilities/mower/command/?locationId={}'.format(self.device_id, self.location_id)
+            if command == 'START':
+                command_gardena = 'start_resume_schedule'
+            elif command == 'PARK':
+                command_gardena = 'park_until_further_notice'
+            else:
+                raise CommandException("unsupported for gardena mowers")
+            body = {"name": command_gardena}
+        elif self.device_type == "husqvarna":
+            url = self._API_TRACK + 'mowers/%s/control' % self.device_id
+            body = {"action": command}
+        response = self.session.post(url,
+                                     headers=self._HEADERS,
+                                     json=body)
         response.raise_for_status()
 
 
@@ -259,13 +329,14 @@ def setup_api(config, tokenConfig, args):
     if args.token and tokenConfig.token and not tokenConfig.token_valid():
         logger.warn('The token expired on %s. Will create a new one.' % tokenConfig.expire_on)
     if args.token and tokenConfig.token_valid():
-        mow.set_token(tokenConfig.token, tokenConfig.provider)
+        mow.set_token(tokenConfig.token, tokenConfig.provider, tokenConfig.user_id)
     else:
         expire = mow.login(config.login, config.password)
         if args.token:
             tokenConfig.token = mow.token
             tokenConfig.provider = mow.provider
             tokenConfig.expire_on = datetime.now() + timedelta(0, expire)
+            tokenConfig.user_id = mow.user_id
             tokenConfig.save_config()
             logger.info('Updated token')
     mow.select_robot(args.mower)
@@ -448,7 +519,7 @@ def main():
 
     if args.logout and tokenConfig.token_valid():
         mow = API()
-        mow.set_token(tokenConfig.token, tokenConfig.provider)
+        mow.set_token(tokenConfig.token, tokenConfig.provider, tokenConfig.user_id)
         mow.logout()
         tokenConfig = TokenConfig()
         tokenConfig.save_config()
