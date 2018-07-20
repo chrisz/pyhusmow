@@ -23,10 +23,10 @@ class AutoMowerConfig(ConfigParser):
         self.expire_status = "30"
 
     def load_config(self):
-        return self.read('automower.cfg')
+        return self.read(self.config_dir + '/automower.cfg')
 
     def save_config(self):
-        with open('automower.cfg', mode='w') as f:
+        with open(self.config_dir + '/automower.cfg', mode='w') as f:
             return self.write(f)
 
     @property
@@ -71,10 +71,10 @@ class TokenConfig(ConfigParser):
         self.expire_on = datetime(1900, 1, 1)
 
     def load_config(self):
-        return self.read('token.cfg')
+        return self.read(self.config_dir + '/token.cfg')
 
     def save_config(self):
-        with open('token.cfg', mode='w') as f:
+        with open(self.config_dir + '/token.cfg', mode='w') as f:
             return self.write(f)
 
     @property
@@ -218,6 +218,8 @@ def log_error(args, msg):
 
 def create_config(args):
     config = AutoMowerConfig()
+    if args.config_dir: 
+        config.config_dir = args.config_dir
     config.load_config()
     if args.login:
         config.login = args.login
@@ -228,6 +230,8 @@ def create_config(args):
     if hasattr(args, "expire_status") and args.expire_status:
         config.expire_status = args.expire_status
     tokenConfig = TokenConfig()
+    if args.config_dir: 
+        tokenConfig.config_dir = args.config_dir
     tokenConfig.load_config()
 
     if (not args.token or not tokenConfig.token_valid()) and (not config.login or not config.password):
@@ -427,6 +431,8 @@ def main():
                         help='Display all logs or just in case of error')
     parser.add_argument('--json', action='store_true',
                         help='Enable json output. Logger will be set to "ERROR"')
+    parser.add_argument('--config-dir', dest='config_dir', default='.',
+                        help='Use config directory (for automower.cfg and token.cfg)')
 
     args = parser.parse_args()
     if args.password == ask_password:
