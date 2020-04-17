@@ -1,4 +1,7 @@
 # pyhusmow
+
+*This repository is no longer maintained. Husqvarna provides an official api now, you can easily use it: https://developer.1689.cloud/apis/Automower+Connect+API*
+
 Control your Husqvarna automower using Automower connect API.
 
 ## For french people
